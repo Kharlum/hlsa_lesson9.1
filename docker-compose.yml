@@ -1,0 +1,83 @@
+networks:
+  redis_cluster:
+    driver: bridge
+    name: redis_cluster
+
+volumes:
+  redis1.data:
+    name: redis1.data
+  redis2.data:
+    name: redis2.data
+
+services:
+  redis-master:
+    image: bitnami/redis:latest
+    container_name: redis-master
+    restart: always
+    ports:
+      - "6479:6379"
+    networks:
+      redis_cluster:
+        aliases:
+          - redis-master.local
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    volumes:
+      - ./redis.conf:/opt/bitnami/redis/mounted-etc/redis.conf
+      - redis1.data:/bitnami/redis/data
+
+  redis-slave:
+    image: bitnami/redis:latest
+    container_name: redis-slave
+    restart: always
+    ports:
+      - "6480:6379"
+    networks:
+      redis_cluster:
+        aliases:
+          - redis-slave.local
+    environment:
+      - REDIS_REPLICATION_MODE=slave
+      - REDIS_MASTER_HOST=redis-master.local
+      - REDIS_MASTER_PORT_NUMBER=6379
+      - ALLOW_EMPTY_PASSWORD=yes
+    volumes:
+      - ./redis.conf:/opt/bitnami/redis/mounted-etc/redis.conf
+      - redis2.data:/bitnami/redis/data
+    depends_on:
+      - redis-master
+  
+  redis-sentinel:
+    image: bitnami/redis:latest
+    restart: always
+    deploy:
+      replicas: 3
+    networks:
+      redis_cluster:
+        aliases:
+          - redis-sentinel.local
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    depends_on:
+      - redis-master
+      - redis-slave
+
+  aspnetapp:
+    container_name: aspnetapp
+    image: aspnetapp:latest
+    restart: always
+    build:
+      context: .
+      dockerfile: ./WebApplication/WebApplication/Dockerfile
+    environment:
+      - "Redis__ConnectionString=redis-master.local:6379"
+    ports:
+      - '8889:80'
+    networks:
+      redis_cluster:
+        aliases:
+          - aspnetapp.local
+    links:
+      - redis-master
+      - redis-slave
+      - redis-sentinel
